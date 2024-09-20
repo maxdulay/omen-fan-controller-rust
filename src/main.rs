@@ -1,6 +1,9 @@
+use signal_hook::consts::SIGTERM;
+use signal_hook::iterator::Signals;
+use std::thread;
 use bisection::bisect_left;
 use lzma_rs;
-use nix::{kmod::*, unistd::Uid};
+use nix::{kmod::*, unistd::Uid, sys::utsname::uname};
 use std::ffi::CString;
 use std::fs::{read_to_string, File};
 use std::io::prelude::*;
@@ -30,8 +33,9 @@ fn load_ec_sys() {
             .unwrap();
         }
     }
+    let sysinfo = uname().expect("get sysinfo");
     let fmod = File::open(
-        "/run/booted-system/kernel-modules/lib/modules/6.6.31/kernel/drivers/acpi/ec_sys.ko.xz",
+        format!("/run/booted-system/kernel-modules/lib/modules/{}/kernel/drivers/acpi/ec_sys.ko.xz", sysinfo.release().to_str().expect("Could not get version"))
     )
     .expect("Did not find kernel module");
     let mut f = std::io::BufReader::new(fmod);
@@ -44,8 +48,9 @@ fn load_ec_sys() {
 fn get_temp() -> u8 {
     let mut ecio = File::options()
         .read(true)
+        .write(true)
         .open(ECIO_FILE)
-        .expect("Failed to open ECIO file");
+        .expect("Failed to open file");
     _ = ecio.seek(SeekFrom::Start(CPU_TEMP_OFFSET));
     let mut cputtemp = [0];
     ecio.read_exact(&mut cputtemp).expect("Unable to read temp");
@@ -60,7 +65,7 @@ fn update_fan(speed1: u8, speed2: u8) {
         .read(true)
         .write(true)
         .open(ECIO_FILE)
-        .expect("Failed to open ECIO file");
+        .expect("Failed to open file");
     ecio.seek(SeekFrom::Start(FAN1_OFFSET))
         .expect("Could not seek fan1 offset");
     ecio.write_all(&[speed1]).expect("Unable to write to file");
@@ -70,7 +75,7 @@ fn update_fan(speed1: u8, speed2: u8) {
     ecio.flush().expect("Unable to sync");
 }
 
-fn bios_control(enabled: bool) {
+fn bios_control( enabled: bool) {
     let mut ecio = File::options()
         .read(true)
         .write(true)
@@ -98,10 +103,10 @@ fn check_root() {
 }
 
 fn main() {
+// Create a Signals instance to handle signals
     {
         check_root();
         load_ec_sys();
-        bios_control(false);
     }
     let config = File::open(CONFIG_FILE);
     let mut contents = String::new();
@@ -124,7 +129,7 @@ fn main() {
         .collect();
     let speed_curve: Vec<Vec<u8>> = configtable["service"]["SPEED_CURVE"]
         .as_array()
-        .expect("Couldn't convert speed_curve")
+        .expect("Couldn't convert speed_curve to array")
         .into_iter()
         .map(|percentspeed| percentspeed.as_integer().expect("Convert to float") as f64)
         .map(|percentspeed| {
@@ -146,22 +151,50 @@ fn main() {
     let mut lowthreshold: u8 = 100;
     let mut highthreshold: u8 = 0;
     let mut index: usize = 1;
+    let mut temp: u8 = get_temp();
+    let mut temp2: u8 = temp;
+    let mut temp3: u8 = temp;
+    let mut temp4: u8;
+    let mut lastindex: usize;
+    let mut mintemp: u8;
+    let mut maxtemp: u8;
+    let mut signals = Signals::new(&[SIGTERM]).expect("Failed to create signal handler");
 
+    bios_control(false);
+    let _handle = thread::spawn(move || {
+        for signal in signals.forever() {
+            match signal {
+                SIGTERM => {
+                    bios_control(true);
+                    std::process::exit(0);
+                },
+                _ => unreachable!(),
+            }
+        }
+    });
     loop {
-        let lastindex = index;
-        let temp = get_temp();
-        if temp <= temp_curve[0][0] {
+        lastindex = index;
+        temp4 = temp3;
+        temp3 = temp2;
+        temp2 = temp;
+        temp = get_temp();
+        mintemp = temp.min(temp2).min(temp3).min(temp4);
+        maxtemp = temp.max(temp2).max(temp3).max(temp4);
+        if maxtemp <= temp_curve[0][0] {
             index = 0;
-        } else if temp >= temp_curve[temp_curve.len() - 1][1] {
+        } else if mintemp >= temp_curve[temp_curve.len() - 1][1] {
             index = speed_curve.len() - 1;
-        } else if temp <= lowthreshold || temp >= highthreshold {
-            index = bisect_left(&temp_curve_high, &temp);
-            lowthreshold = temp_curve[index][0];
-            highthreshold = temp_curve[index][1];
+        } else if maxtemp < lowthreshold || mintemp > highthreshold {
+            index = bisect_left(&temp_curve_high, &mintemp);
         }
         if index != lastindex {
+            lowthreshold = temp_curve[index][0];
+            highthreshold = temp_curve[index][1];
+            println!("Temperature:{} Index: {}", mintemp, index);
             update_fan(speed_curve[index][0], speed_curve[index][1]);
         }
         sleep(poll_interval);
     }
+
 }
+

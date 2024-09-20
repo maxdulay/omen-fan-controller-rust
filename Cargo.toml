@@ -8,5 +8,11 @@ edition = "2021"
 [dependencies]
 toml = "*"
 bisection = "*"
-nix = "*"
+nix = {version = "*", features = ["user", "kmod"]}
 lzma-rs = "*"
+signal-hook = "*"
+
+[profile.release] 
+lto = true 
+codegen-units = 1
+panic = "abort"
