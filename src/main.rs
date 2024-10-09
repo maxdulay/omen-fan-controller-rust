@@ -1,4 +1,4 @@
-use signal_hook::consts::SIGTERM;
+use signal_hook::consts::{SIGTERM, SIGINT};
 use signal_hook::iterator::Signals;
 use std::thread;
 use bisection::bisect_left;
@@ -9,6 +9,7 @@ use std::fs::{read_to_string, File};
 use std::io::prelude::*;
 use std::io::{Seek, SeekFrom};
 use std::thread::sleep;
+use std::panic;
 use toml;
 
 const FAN1_OFFSET: u64 = 52;
@@ -158,13 +159,13 @@ fn main() {
     let mut lastindex: usize;
     let mut mintemp: u8;
     let mut maxtemp: u8;
-    let mut signals = Signals::new(&[SIGTERM]).expect("Failed to create signal handler");
+    let mut signals = Signals::new(&[SIGTERM, SIGINT]).expect("Failed to create signal handler");
 
     bios_control(false);
     let _handle = thread::spawn(move || {
         for signal in signals.forever() {
             match signal {
-                SIGTERM => {
+                SIGINT | SIGTERM => {
                     bios_control(true);
                     std::process::exit(0);
                 },
@@ -172,6 +173,9 @@ fn main() {
             }
         }
     });
+    panic::set_hook(Box::new(|_| {
+        bios_control(true);
+    }));
     loop {
         lastindex = index;
         temp4 = temp3;
