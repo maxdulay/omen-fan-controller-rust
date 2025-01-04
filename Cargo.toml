@@ -11,6 +11,7 @@ bisection = "*"
 nix = {version = "*", features = ["user", "kmod"]}
 lzma-rs = "*"
 signal-hook = "*"
+serde = { version = "*", features = ["derive"]}
 
 [profile.release] 
 lto = true 
