@@ -16,4 +16,4 @@ serde = { version = "*", features = ["derive"]}
 [profile.release] 
 lto = true 
 codegen-units = 1
-panic = "abort"
+panic = "unwind"

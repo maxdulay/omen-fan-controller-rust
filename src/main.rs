@@ -30,12 +30,17 @@ struct Controller {
 
 impl Controller {
     fn get_temp(&mut self) -> u8 {
-        _ = self.ecio.seek(SeekFrom::Start(CPU_TEMP_OFFSET));
+        _ = self
+            .ecio
+            .seek(SeekFrom::Start(CPU_TEMP_OFFSET))
+            .expect("Failed to seek GPU_TEMP_OFFSET");
         let mut cputtemp = [0];
         self.ecio
             .read_exact(&mut cputtemp)
             .expect("Unable to read temp");
-        _ = self.ecio.seek(SeekFrom::Start(GPU_TEMP_OFFSET));
+        self.ecio
+            .seek(SeekFrom::Start(GPU_TEMP_OFFSET))
+            .expect("Failed to seek GPU_TEMP_OFFSET");
         let mut gputemp = [0];
         self.ecio
             .read_exact(&mut gputemp)
@@ -114,7 +119,7 @@ fn check_root() {
 #[derive(Deserialize)]
 struct Service {
     temp_curve: [[u8; 2]; 6], // Fixed-size 2D array (6x2)
-    speed_curve: [f64; 6],     // Fixed-size array of 6 elements
+    speed_curve: [f64; 6],    // Fixed-size array of 6 elements
     poll_interval: u64,       // A single integer
 }
 
@@ -132,13 +137,13 @@ fn main() {
     let toml_str = read_to_string(CONFIG_FILE).expect("Failed to read the TOML file");
     let config: Config = toml::de::from_str(&toml_str).expect("Failed to parse TOML");
     drop(toml_str);
-    let temp_curve_high: [u8; 6] = [ 
-        config.service.temp_curve[0][0],
-        config.service.temp_curve[1][0],
-        config.service.temp_curve[2][0],
-        config.service.temp_curve[3][0],
-        config.service.temp_curve[4][0],
-        config.service.temp_curve[5][0],
+    let temp_curve_high: [u8; 6] = [
+        config.service.temp_curve[0][1],
+        config.service.temp_curve[1][1],
+        config.service.temp_curve[2][1],
+        config.service.temp_curve[3][1],
+        config.service.temp_curve[4][1],
+        config.service.temp_curve[5][1],
     ];
     let poll_interval = std::time::Duration::from_millis(config.service.poll_interval);
     let temp_curve = config.service.temp_curve;
@@ -192,8 +197,8 @@ fn main() {
         maxtemp = temp.max(temp2).max(temp3).max(temp4);
         if maxtemp <= temp_curve[0][0] {
             index = 0;
-        } else if mintemp >= temp_curve[temp_curve.len() - 1][1] {
-            index = speed_curve.len() - 1;
+        } else if mintemp >= temp_curve[5][1] {
+            index = 5;
         } else if maxtemp < lowthreshold || mintemp > highthreshold {
             index = bisect_left(&temp_curve_high, &mintemp);
         }
