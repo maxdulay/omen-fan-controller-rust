@@ -17,3 +17,11 @@ serde = { version = "*", features = ["derive"]}
 lto = true 
 codegen-units = 1
 panic = "unwind"
+
+[[bin]]
+name = "omen-rust"
+path = "src/omen-rust/main.rs"
+
+[[bin]]
+name = "omen-performance-control"
+path = "src/omen-performance-control/main.rs"
